@@ -1,0 +1,12 @@
+bettercam
+opencv-python
+pytesseract
+Pillow
+requests
+pygame
+keyboard
+edge-tts
+google-genai
+sounddevice
+numpy
+mss
