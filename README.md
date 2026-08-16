@@ -1,4 +1,3 @@
-<<<<<<< HEAD
 # DM Reader
 
 Select any on-screen game text and have it read aloud in an immersive
