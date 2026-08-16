@@ -1,2 +1,12 @@
 config.json
 control.json
+venv/
+chatterbox_server/venv/
+__pycache__/
+*.pyc
+build/
+dist/
+*.spec
+DMReader.exe
+DMReaderSettings.exe
+DMReaderLauncher.exe
