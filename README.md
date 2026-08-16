@@ -1,3 +1,4 @@
+<<<<<<< HEAD
 # DM Reader
 
 Select any on-screen game text and have it read aloud in an immersive
@@ -290,3 +291,6 @@ engines default to that mode anyway.
 | Stop Reader doesn't cut off narration immediately | Latest version kills the whole process tree (`taskkill /T /F`) rather than just the main process — if you're still on an older `launcher_gui.py`, update it. |
 | Chatterbox "server isn't reachable" error | `run_chatterbox.bat` isn't running, or hasn't finished loading the model yet — wait for "Chatterbox is ready" in that window. |
 | `install_chatterbox.bat` can't find Python 3.11 | Install it from the link the script prints, then run the script again — it uses the `py -3.11` launcher, which works even without adding it to PATH. |
+=======
+# Reading-like-a-Dungon-Master
+>>>>>>> 7c0a15605cb63752f8789ce85e5be03638bbe6c8
