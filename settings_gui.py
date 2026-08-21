@@ -9,7 +9,7 @@ main reader uses — changes apply live, no need to restart the reader.
 import queue
 import threading
 import tkinter as tk
-from tkinter import ttk, messagebox, filedialog, simpledialog
+from tkinter import ttk, messagebox, simpledialog
 
 import keyboard
 
@@ -20,6 +20,8 @@ SAMPLE_TEXT = (
     "The old door creaks open, revealing a chamber untouched for a "
     "hundred years. Dust drifts through a shaft of pale light."
 )
+
+MUTED = "#9a9ea6"
 
 
 class HotkeyCapture(ttk.Frame):
@@ -75,94 +77,41 @@ class SettingsApp(ttk.Frame):
         self.config_data = config
         self.pack(fill=tk.BOTH, expand=True)
 
-        self._build_general_section()
-        self._build_provider_sections()
+        custom_rect = self.config_data.get("ocr_preview_custom_rect")
+        self._custom_preview_rect = tuple(custom_rect) if custom_rect else None
+
+        self.notebook = ttk.Notebook(self)
+        self.notebook.pack(fill=tk.BOTH, expand=True)
+
+        self._build_voice_tab()
+        self._build_general_tab()
+        self._build_hotkeys_tab()
         self._build_buttons()
 
         self.provider_var.set(self.config_data.get("tts_provider", "edge"))
         self._on_provider_change()
 
-    # ---- General ----
+    # ---- Voice engine tab ----
 
-    def _build_general_section(self):
-        frame = ttk.LabelFrame(self, text="General", padding=12)
-        frame.pack(fill=tk.X, pady=(0, 12))
+    def _build_voice_tab(self):
+        tab = ttk.Frame(self.notebook, padding=14)
+        self.notebook.add(tab, text="Voice Engine")
 
-        ttk.Label(frame, text="Narration engine:").grid(row=0, column=0, sticky="w", pady=4)
+        engine_row = ttk.Frame(tab)
+        engine_row.pack(fill=tk.X, pady=(0, 10))
+        ttk.Label(engine_row, text="Narration engine:").pack(side=tk.LEFT)
         self.provider_var = tk.StringVar()
         provider_combo = ttk.Combobox(
-            frame, textvariable=self.provider_var,
-            values=["edge", "gemini", "elevenlabs", "chatterbox"], state="readonly", width=15,
+            engine_row, textvariable=self.provider_var,
+            values=["edge", "gemini", "elevenlabs"], state="readonly", width=15,
         )
-        provider_combo.grid(row=0, column=1, sticky="w", pady=4)
+        provider_combo.pack(side=tk.LEFT, padx=(8, 0))
         provider_combo.bind("<<ComboboxSelected>>", lambda e: self._on_provider_change())
 
-        ttk.Label(frame, text="Capture hotkey:").grid(row=1, column=0, sticky="w", pady=4)
-        self.hotkey_capture = HotkeyCapture(frame, self.config_data.get("hotkey", "f8"))
-        self.hotkey_capture.grid(row=1, column=1, sticky="w", pady=4)
+        self.provider_body = ttk.Frame(tab)
+        self.provider_body.pack(fill=tk.BOTH, expand=True)
 
-        ttk.Label(frame, text="Quit hotkey:").grid(row=2, column=0, sticky="w", pady=4)
-        self.exit_capture = HotkeyCapture(frame, self.config_data.get("exit_key", "f9"))
-        self.exit_capture.grid(row=2, column=1, sticky="w", pady=4)
-
-        ttk.Label(frame, text="Pause/Resume hotkey:").grid(row=3, column=0, sticky="w", pady=4)
-        self.pause_capture = HotkeyCapture(frame, self.config_data.get("pause_key", "f10"))
-        self.pause_capture.grid(row=3, column=1, sticky="w", pady=4)
-
-        ttk.Label(frame, text="Narration speed:").grid(row=4, column=0, sticky="w", pady=4)
-        self.speed_var = tk.DoubleVar(value=float(self.config_data.get("speed", 1.0)) * 100)
-        speed_scale = ttk.Scale(frame, from_=50, to=200, variable=self.speed_var, length=180)
-        speed_scale.grid(row=4, column=1, sticky="w", pady=4)
-        self.speed_label = ttk.Label(frame, text="1.0x")
-        self.speed_label.grid(row=4, column=2, sticky="w", padx=(6, 0))
-        speed_scale.configure(command=lambda v: self.speed_label.config(text=f"{float(v)/100:.1f}x"))
-        self.speed_label.config(text=f"{self.speed_var.get()/100:.1f}x")
-
-        ttk.Label(frame, text="OCR upscale:").grid(row=5, column=0, sticky="w", pady=4)
-        self.ocr_var = tk.DoubleVar(value=float(self.config_data.get("ocr_upscale", 2.0)))
-        ttk.Spinbox(
-            frame, from_=1.0, to=4.0, increment=0.5, textvariable=self.ocr_var, width=6
-        ).grid(row=5, column=1, sticky="w", pady=4)
-
-        ttk.Label(
-            frame, text="(Volume is controlled from the main launcher window)",
-            foreground="#888", font=("Segoe UI", 8),
-        ).grid(row=6, column=0, columnspan=3, sticky="w", pady=(0, 4))
-
-        ttk.Separator(frame, orient="horizontal").grid(row=7, column=0, columnspan=3, sticky="ew", pady=8)
-
-        ttk.Label(frame, text="Capture mode:").grid(row=8, column=0, sticky="w", pady=4)
-        self.capture_mode_display = tk.StringVar()
-        capture_mode_combo = ttk.Combobox(
-            frame, textvariable=self.capture_mode_display,
-            values=["Fullscreen game", "Screen / windowed apps (multi-monitor)"],
-            state="readonly", width=32,
-        )
-        capture_mode_combo.grid(row=8, column=1, columnspan=2, sticky="w", pady=4)
-        current_mode = self.config_data.get("capture_mode", "fullscreen_game")
-        self.capture_mode_display.set(
-            "Fullscreen game" if current_mode == "fullscreen_game"
-            else "Screen / windowed apps (multi-monitor)"
-        )
-        capture_mode_combo.bind("<<ComboboxSelected>>", lambda e: self._on_capture_mode_change())
-
-        self.monitor_label = ttk.Label(frame, text="Monitor (0 = primary):")
-        self.monitor_label.grid(row=9, column=0, sticky="w", pady=4)
-        self.monitor_var = tk.IntVar(value=int(self.config_data.get("monitor_index", 0)))
-        self.monitor_spinbox = ttk.Spinbox(frame, from_=0, to=8, textvariable=self.monitor_var, width=6)
-        self.monitor_spinbox.grid(row=9, column=1, sticky="w", pady=4)
-        self.monitor_hint = ttk.Label(
-            frame, text="Only used in Fullscreen game mode — try 1, 2...\nif it captures the wrong screen.",
-            foreground="#888", font=("Segoe UI", 8),
-        )
-        self.monitor_hint.grid(row=10, column=0, columnspan=3, sticky="w")
-
-        self._on_capture_mode_change()
-
-    def _on_capture_mode_change(self):
-        is_fullscreen = self.capture_mode_display.get() == "Fullscreen game"
-        state = "normal" if is_fullscreen else "disabled"
-        self.monitor_spinbox.config(state=state)
+        self._build_provider_sections()
 
     def _all_gemini_presets(self):
         custom = self.config_data.get("gemini_custom_presets", [])
@@ -229,8 +178,6 @@ class SettingsApp(ttk.Frame):
         self._refresh_gemini_presets()
         self.status_label.config(text=f"Deleted preset '{name}'.")
 
-    # ---- Provider-specific ----
-
     def _add_password_field(self, parent, row, label, initial_value):
         """Entry with a masked value and a 'Show' checkbox next to it."""
         ttk.Label(parent, text=label).grid(row=row, column=0, sticky="w", pady=4)
@@ -250,7 +197,7 @@ class SettingsApp(ttk.Frame):
         self.provider_frames = {}
 
         # Edge
-        edge = ttk.LabelFrame(self, text="Edge TTS settings", padding=12)
+        edge = ttk.Frame(self.provider_body)
         ttk.Label(edge, text="Voice:").grid(row=0, column=0, sticky="w", pady=4)
         self.edge_voice_var = tk.StringVar(value=self.config_data.get("edge_voice", "en-US-GuyNeural"))
         ttk.Combobox(
@@ -266,7 +213,7 @@ class SettingsApp(ttk.Frame):
         self.provider_frames["edge"] = edge
 
         # Gemini
-        gemini = ttk.LabelFrame(self, text="Gemini TTS settings", padding=12)
+        gemini = ttk.Frame(self.provider_body)
         self.gemini_key_var = self._add_password_field(
             gemini, 0, "API key:", self.config_data.get("gemini_api_key", "")
         )
@@ -298,14 +245,18 @@ class SettingsApp(ttk.Frame):
         )
 
         ttk.Label(gemini, text="Style direction:").grid(row=4, column=0, sticky="nw", pady=4)
-        self.gemini_style_text = tk.Text(gemini, width=40, height=3, wrap="word")
+        self.gemini_style_text = tk.Text(
+            gemini, width=40, height=3, wrap="word",
+            bg="#2a2c33", fg="#f4f4f6", insertbackground="#f4f4f6",
+            relief="flat", padx=6, pady=4,
+        )
         self.gemini_style_text.insert("1.0", self.config_data.get("gemini_style_prompt", common.DEFAULT_DM_STYLE_PROMPT))
         self.gemini_style_text.grid(row=4, column=1, sticky="w", pady=4)
         self.provider_frames["gemini"] = gemini
         self._refresh_gemini_presets()
 
         # ElevenLabs
-        eleven = ttk.LabelFrame(self, text="ElevenLabs settings", padding=12)
+        eleven = ttk.Frame(self.provider_body)
         self.eleven_key_var = self._add_password_field(
             eleven, 0, "API key:", self.config_data.get("api_key", "")
         )
@@ -320,86 +271,184 @@ class SettingsApp(ttk.Frame):
         ).grid(row=2, column=1, sticky="w", pady=4)
         self.provider_frames["elevenlabs"] = eleven
 
-        # Chatterbox
-        chatterbox = ttk.LabelFrame(self, text="Chatterbox (local) settings", padding=12)
-        note = ttk.Label(
-            chatterbox,
-            text="Requires run_chatterbox.bat to be running separately —\n"
-                 "see install_chatterbox.bat if you haven't set it up yet.",
-            foreground="#888", font=("Segoe UI", 8),
-        )
-        note.grid(row=0, column=0, columnspan=3, sticky="w", pady=(0, 8))
-
-        ttk.Label(chatterbox, text="Exaggeration:").grid(row=1, column=0, sticky="w", pady=4)
-        self.cb_exaggeration_var = tk.DoubleVar(value=float(self.config_data.get("chatterbox_exaggeration", 0.5)))
-        ttk.Scale(chatterbox, from_=0.0, to=2.0, variable=self.cb_exaggeration_var, length=180).grid(
-            row=1, column=1, sticky="w", pady=4
-        )
-
-        ttk.Label(chatterbox, text="CFG weight:").grid(row=2, column=0, sticky="w", pady=4)
-        self.cb_cfg_var = tk.DoubleVar(value=float(self.config_data.get("chatterbox_cfg_weight", 0.5)))
-        ttk.Scale(chatterbox, from_=0.0, to=1.0, variable=self.cb_cfg_var, length=180).grid(
-            row=2, column=1, sticky="w", pady=4
-        )
-
-        ttk.Label(chatterbox, text="Temperature:").grid(row=3, column=0, sticky="w", pady=4)
-        self.cb_temp_var = tk.DoubleVar(value=float(self.config_data.get("chatterbox_temperature", 0.8)))
-        ttk.Scale(chatterbox, from_=0.1, to=1.5, variable=self.cb_temp_var, length=180).grid(
-            row=3, column=1, sticky="w", pady=4
-        )
-
-        tuning_hint = ttk.Label(
-            chatterbox,
-            text="For a deliberate, dramatic DM feel: try exaggeration\n"
-                 "~0.7 with CFG weight ~0.3 (higher exaggeration alone\n"
-                 "speeds speech up — lowering CFG weight compensates).",
-            foreground="#888", font=("Segoe UI", 8),
-        )
-        tuning_hint.grid(row=4, column=0, columnspan=3, sticky="w", pady=(2, 8))
-
-        ttk.Label(chatterbox, text="Voice sample (optional):").grid(row=5, column=0, sticky="w", pady=4)
-        self.cb_voice_sample_var = tk.StringVar(value=self.config_data.get("chatterbox_voice_sample", ""))
-        ttk.Entry(chatterbox, textvariable=self.cb_voice_sample_var, width=28).grid(
-            row=5, column=1, sticky="w", pady=4
-        )
-        ttk.Button(chatterbox, text="Browse...", command=self._browse_voice_sample).grid(
-            row=5, column=2, sticky="w", padx=(6, 0)
-        )
-        clone_hint = ttk.Label(
-            chatterbox,
-            text="A short (~10-30s) clean .wav/.mp3 clip clones that\n"
-                 "voice. Leave blank to use Chatterbox's default voice.",
-            foreground="#888", font=("Segoe UI", 8),
-        )
-        clone_hint.grid(row=6, column=0, columnspan=3, sticky="w")
-
-        self.provider_frames["chatterbox"] = chatterbox
-
-    def _browse_voice_sample(self):
-        path = filedialog.askopenfilename(
-            title="Choose a voice sample",
-            filetypes=[("Audio files", "*.wav *.mp3"), ("All files", "*.*")],
-        )
-        if path:
-            self.cb_voice_sample_var.set(path)
-
     def _on_provider_change(self):
         for frame in self.provider_frames.values():
             frame.pack_forget()
         selected = self.provider_frames.get(self.provider_var.get())
         if selected:
-            selected.pack(fill=tk.X, pady=(0, 12))
+            selected.pack(fill=tk.X, pady=(4, 0))
+
+    # ---- General tab ----
+
+    def _build_general_tab(self):
+        tab = ttk.Frame(self.notebook, padding=14)
+        self.notebook.add(tab, text="General")
+
+        ttk.Label(tab, text="Narration speed:").grid(row=0, column=0, sticky="w", pady=4)
+        self.speed_var = tk.DoubleVar(value=float(self.config_data.get("speed", 1.0)) * 100)
+        speed_scale = ttk.Scale(tab, from_=50, to=200, variable=self.speed_var, length=180)
+        speed_scale.grid(row=0, column=1, sticky="w", pady=4)
+        self.speed_label = ttk.Label(tab, text="1.0x")
+        self.speed_label.grid(row=0, column=2, sticky="w", padx=(6, 0))
+        speed_scale.configure(command=lambda v: self.speed_label.config(text=f"{float(v)/100:.1f}x"))
+        self.speed_label.config(text=f"{self.speed_var.get()/100:.1f}x")
+
+        ttk.Label(tab, text="OCR upscale:").grid(row=1, column=0, sticky="w", pady=4)
+        self.ocr_var = tk.DoubleVar(value=float(self.config_data.get("ocr_upscale", 2.0)))
+        ttk.Spinbox(
+            tab, from_=1.0, to=4.0, increment=0.5, textvariable=self.ocr_var, width=6
+        ).grid(row=1, column=1, sticky="w", pady=4)
+
+        ttk.Label(
+            tab, text="(Volume is controlled from the main launcher window)",
+            foreground=MUTED, font=("Segoe UI", 8),
+        ).grid(row=2, column=0, columnspan=3, sticky="w", pady=(0, 4))
+
+        self.ocr_preview_var = tk.BooleanVar(value=bool(self.config_data.get("show_ocr_preview", True)))
+        ttk.Checkbutton(
+            tab, text="Show recognized text on-screen, highlighted as it's spoken",
+            variable=self.ocr_preview_var,
+        ).grid(row=3, column=0, columnspan=3, sticky="w", pady=(6, 4))
+
+        ttk.Label(tab, text="Preview position:").grid(row=4, column=0, sticky="w", pady=4)
+        self.ocr_preview_position_var = tk.StringVar()
+        position_combo = ttk.Combobox(
+            tab, textvariable=self.ocr_preview_position_var,
+            values=["Top", "Center", "Bottom", "Custom"], state="readonly", width=12,
+        )
+        position_combo.grid(row=4, column=1, sticky="w", pady=4)
+        current_position = self.config_data.get("ocr_preview_position", "top")
+        self.ocr_preview_position_var.set(current_position.capitalize())
+
+        ttk.Button(
+            tab, text="Drag to position...", command=self._drag_to_position,
+        ).grid(row=4, column=2, sticky="w", padx=(6, 0), pady=4)
+
+        ttk.Label(tab, text="Keep on screen after narration ends (seconds):").grid(row=5, column=0, sticky="w", pady=4)
+        self.ocr_preview_seconds_var = tk.DoubleVar(
+            value=float(self.config_data.get("ocr_preview_seconds", 2.5))
+        )
+        ttk.Spinbox(
+            tab, from_=0.5, to=6.0, increment=0.5,
+            textvariable=self.ocr_preview_seconds_var, width=6,
+        ).grid(row=5, column=1, sticky="w", pady=4)
+
+        ttk.Label(tab, text="Watch mode check interval (seconds):").grid(row=6, column=0, sticky="w", pady=4)
+        self.watch_interval_var = tk.DoubleVar(
+            value=float(self.config_data.get("watch_interval_seconds", 2.0))
+        )
+        ttk.Spinbox(
+            tab, from_=0.5, to=10.0, increment=0.5,
+            textvariable=self.watch_interval_var, width=6,
+        ).grid(row=6, column=1, sticky="w", pady=4)
+
+        ttk.Separator(tab, orient="horizontal").grid(row=7, column=0, columnspan=3, sticky="ew", pady=10)
+
+        ttk.Label(tab, text="Capture mode:").grid(row=8, column=0, sticky="w", pady=4)
+        self.capture_mode_display = tk.StringVar()
+        capture_mode_combo = ttk.Combobox(
+            tab, textvariable=self.capture_mode_display,
+            values=["Fullscreen game", "Screen / windowed apps (multi-monitor)"],
+            state="readonly", width=32,
+        )
+        capture_mode_combo.grid(row=8, column=1, columnspan=2, sticky="w", pady=4)
+        current_mode = self.config_data.get("capture_mode", "fullscreen_game")
+        self.capture_mode_display.set(
+            "Fullscreen game" if current_mode == "fullscreen_game"
+            else "Screen / windowed apps (multi-monitor)"
+        )
+        capture_mode_combo.bind("<<ComboboxSelected>>", lambda e: self._on_capture_mode_change())
+
+        self.monitor_label = ttk.Label(tab, text="Monitor (0 = primary):")
+        self.monitor_label.grid(row=9, column=0, sticky="w", pady=4)
+        self.monitor_var = tk.IntVar(value=int(self.config_data.get("monitor_index", 0)))
+        self.monitor_spinbox = ttk.Spinbox(tab, from_=0, to=8, textvariable=self.monitor_var, width=6)
+        self.monitor_spinbox.grid(row=9, column=1, sticky="w", pady=4)
+        self.monitor_hint = ttk.Label(
+            tab, text="Only used in Fullscreen game mode — try 1, 2...\nif it captures the wrong screen.",
+            foreground=MUTED, font=("Segoe UI", 8),
+        )
+        self.monitor_hint.grid(row=10, column=0, columnspan=3, sticky="w")
+
+        self._on_capture_mode_change()
+
+    def _on_capture_mode_change(self):
+        is_fullscreen = self.capture_mode_display.get() == "Fullscreen game"
+        state = "normal" if is_fullscreen else "disabled"
+        self.monitor_spinbox.config(state=state)
+
+    def _drag_to_position(self):
+        self.status_label.config(
+            text="Drag a box on your screen to position the preview — Esc to cancel."
+        )
+        self.update_idletasks()
+        result_queue = queue.Queue()
+
+        def run():
+            rect = common.select_screen_rect(
+                "Click and drag to position the text preview box  •  Esc to cancel"
+            )
+            result_queue.put(rect)
+
+        threading.Thread(target=run, daemon=True).start()
+        self._poll_drag_result(result_queue)
+
+    def _poll_drag_result(self, result_queue):
+        try:
+            rect = result_queue.get_nowait()
+        except queue.Empty:
+            self.after(100, lambda: self._poll_drag_result(result_queue))
+            return
+
+        if rect is None:
+            self.status_label.config(text="Preview position unchanged.")
+            return
+        self._custom_preview_rect = rect
+        self.ocr_preview_position_var.set("Custom")
+        self.status_label.config(
+            text=f"Preview box set — {rect[2]}×{rect[3]} px at ({rect[0]}, {rect[1]})."
+        )
+
+    # ---- Hotkeys tab ----
+
+    def _build_hotkeys_tab(self):
+        tab = ttk.Frame(self.notebook, padding=14)
+        self.notebook.add(tab, text="Hotkeys")
+
+        ttk.Label(tab, text="Capture hotkey:").grid(row=0, column=0, sticky="w", pady=6)
+        self.hotkey_capture = HotkeyCapture(tab, self.config_data.get("hotkey", "f8"))
+        self.hotkey_capture.grid(row=0, column=1, sticky="w", pady=6)
+
+        ttk.Label(tab, text="Recapture hotkey (re-read same region):").grid(row=1, column=0, sticky="w", pady=6)
+        self.recapture_capture = HotkeyCapture(tab, self.config_data.get("recapture_key", "f7"))
+        self.recapture_capture.grid(row=1, column=1, sticky="w", pady=6)
+
+        ttk.Label(tab, text="Watch mode hotkey (auto-read on change):").grid(row=2, column=0, sticky="w", pady=6)
+        self.watch_capture = HotkeyCapture(tab, self.config_data.get("watch_key", "f12"))
+        self.watch_capture.grid(row=2, column=1, sticky="w", pady=6)
+
+        ttk.Label(tab, text="Pause/Resume hotkey:").grid(row=3, column=0, sticky="w", pady=6)
+        self.pause_capture = HotkeyCapture(tab, self.config_data.get("pause_key", "f10"))
+        self.pause_capture.grid(row=3, column=1, sticky="w", pady=6)
+
+        ttk.Label(tab, text="Skip hotkey (cancel current narration):").grid(row=4, column=0, sticky="w", pady=6)
+        self.skip_capture = HotkeyCapture(tab, self.config_data.get("skip_key", "f11"))
+        self.skip_capture.grid(row=4, column=1, sticky="w", pady=6)
+
+        ttk.Label(tab, text="Quit hotkey:").grid(row=5, column=0, sticky="w", pady=6)
+        self.exit_capture = HotkeyCapture(tab, self.config_data.get("exit_key", "f9"))
+        self.exit_capture.grid(row=5, column=1, sticky="w", pady=6)
 
     # ---- Buttons ----
 
     def _build_buttons(self):
         button_row = ttk.Frame(self)
-        button_row.pack(fill=tk.X, pady=(8, 0))
+        button_row.pack(fill=tk.X, pady=(12, 0))
 
         ttk.Button(button_row, text="Test Voice", command=self._test_voice).pack(side=tk.LEFT)
-        ttk.Button(button_row, text="Save", command=self._save).pack(side=tk.RIGHT)
+        ttk.Button(button_row, text="Save", command=self._save, style="Accent.TButton").pack(side=tk.RIGHT)
 
-        self.status_label = ttk.Label(self, text="", foreground="#2a7")
+        self.status_label = ttk.Label(self, text="", foreground="#3fb950")
         self.status_label.pack(anchor="w", pady=(8, 0))
 
     def _collect_config(self):
@@ -408,6 +457,9 @@ class SettingsApp(ttk.Frame):
         config["hotkey"] = self.hotkey_capture.get()
         config["exit_key"] = self.exit_capture.get()
         config["pause_key"] = self.pause_capture.get()
+        config["recapture_key"] = self.recapture_capture.get()
+        config["skip_key"] = self.skip_capture.get()
+        config["watch_key"] = self.watch_capture.get()
         # Volume now lives on the launcher's home screen, not here — read
         # the live value from disk rather than a stale snapshot from
         # when this window opened, so Settings never accidentally
@@ -416,6 +468,13 @@ class SettingsApp(ttk.Frame):
             config["volume"] = common.read_config().get("volume", config.get("volume", 1.0))
         config["speed"] = round(self.speed_var.get() / 100, 2)
         config["ocr_upscale"] = float(self.ocr_var.get())
+        config["show_ocr_preview"] = bool(self.ocr_preview_var.get())
+        config["ocr_preview_position"] = self.ocr_preview_position_var.get().lower()
+        config["ocr_preview_custom_rect"] = (
+            list(self._custom_preview_rect) if self._custom_preview_rect else None
+        )
+        config["ocr_preview_seconds"] = round(float(self.ocr_preview_seconds_var.get()), 1)
+        config["watch_interval_seconds"] = round(float(self.watch_interval_var.get()), 1)
         config["capture_mode"] = (
             "fullscreen_game" if self.capture_mode_display.get() == "Fullscreen game"
             else "desktop"
@@ -434,11 +493,6 @@ class SettingsApp(ttk.Frame):
         config["api_key"] = self.eleven_key_var.get()
         config["voice_id"] = self.eleven_voice_var.get()
         config["model_id"] = self.eleven_model_var.get()
-
-        config["chatterbox_exaggeration"] = round(self.cb_exaggeration_var.get(), 2)
-        config["chatterbox_cfg_weight"] = round(self.cb_cfg_var.get(), 2)
-        config["chatterbox_temperature"] = round(self.cb_temp_var.get(), 2)
-        config["chatterbox_voice_sample"] = self.cb_voice_sample_var.get()
 
         return config
 
@@ -473,6 +527,13 @@ def main():
     root = tk.Tk()
     root.title("DM Reader — Settings")
     root.resizable(False, False)
+
+    try:
+        from launcher_gui import apply_theme
+        apply_theme(root)
+    except ImportError:
+        pass
+
     SettingsApp(root, config)
     root.mainloop()
 

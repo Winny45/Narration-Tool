@@ -33,11 +33,25 @@ def _ensure_mixer():
         pygame.mixer.init()
 
 
-def play_and_delete(path, volume=1.0, stop_event=None, pause_event=None):
+def play_and_delete(path, volume=1.0, stop_event=None, pause_event=None, on_playback_start=None):
     _ensure_mixer()
+
+    # Read the exact clip length before playing so callers (the OCR
+    # preview's word-highlight timer) can sync to real audio duration
+    # rather than guessing.
+    try:
+        duration = pygame.mixer.Sound(path).get_length()
+    except Exception:
+        duration = 0.0
+
     pygame.mixer.music.load(path)
     pygame.mixer.music.set_volume(max(0.0, min(1.0, float(volume))))
     pygame.mixer.music.play()
+    if on_playback_start is not None:
+        try:
+            on_playback_start(duration)
+        except Exception:
+            pass
 
     paused = False
     while True:
@@ -64,7 +78,7 @@ def play_and_delete(path, volume=1.0, stop_event=None, pause_event=None):
         pass
 
 
-def speak_edge(text, config, stop_event=None, pause_event=None):
+def speak_edge(text, config, stop_event=None, pause_event=None, on_playback_start=None):
     import edge_tts
 
     voice = config.get("edge_voice", "en-US-GuyNeural")
@@ -91,10 +105,10 @@ def speak_edge(text, config, stop_event=None, pause_event=None):
             os.remove(path)
         raise RuntimeError(f"Edge TTS error: {e}") from e
 
-    play_and_delete(path, volume, stop_event, pause_event)
+    play_and_delete(path, volume, stop_event, pause_event, on_playback_start)
 
 
-def speak_gemini(text, config, stop_event=None, pause_event=None):
+def speak_gemini(text, config, stop_event=None, pause_event=None, on_playback_start=None):
     """Streams audio and plays it as chunks arrive rather than waiting
     for the full clip to be generated first.
 
@@ -125,6 +139,14 @@ def speak_gemini(text, config, stop_event=None, pause_event=None):
         pace_note = " Speak briskly, noticeably faster than a normal conversational pace."
     else:
         pace_note = ""
+
+    # Gemini streams raw PCM straight to the output device rather than
+    # writing a file, so there's no clip to measure like the other
+    # engines get — estimate instead, from a rough average spoken-
+    # English pace, scaled by the same speed dial used for the pacing
+    # instruction above. Good enough for the OCR preview's word-by-word
+    # highlight timing; not meant to be exact.
+    estimated_duration = max(0.5, len(text) / (14.5 * speed))
 
     client = _gemini_clients.get(api_key)
     if client is None:
@@ -179,6 +201,11 @@ def speak_gemini(text, config, stop_event=None, pause_event=None):
                 # there's actually audio to play.
                 stream = sd.OutputStream(samplerate=24000, channels=1, dtype="int16")
                 stream.start()
+                if on_playback_start is not None:
+                    try:
+                        on_playback_start(estimated_duration)
+                    except Exception:
+                        pass
 
             pcm = np.frombuffer(inline.data, dtype=np.int16)
             if volume != 1.0:
@@ -202,7 +229,7 @@ def speak_gemini(text, config, stop_event=None, pause_event=None):
         raise error_to_raise
 
 
-def speak_elevenlabs(text, config, stop_event=None, pause_event=None):
+def speak_elevenlabs(text, config, stop_event=None, pause_event=None, on_playback_start=None):
     api_key = config.get("api_key", "")
     voice_id = config.get("voice_id", "")
     volume = config.get("volume", 1.0)
@@ -249,10 +276,10 @@ def speak_elevenlabs(text, config, stop_event=None, pause_event=None):
             if chunk:
                 f.write(chunk)
 
-    play_and_delete(path, volume, stop_event, pause_event)
+    play_and_delete(path, volume, stop_event, pause_event, on_playback_start)
 
 
-def speak_chatterbox(text, config, stop_event=None, pause_event=None):
+def speak_chatterbox(text, config, stop_event=None, pause_event=None, on_playback_start=None):
     """Talks to a local Chatterbox server (chatterbox_server/server.py)
     over HTTP on localhost. That server runs in its own Python 3.11
     environment and must already be running — see run_chatterbox.bat.
@@ -287,16 +314,16 @@ def speak_chatterbox(text, config, stop_event=None, pause_event=None):
     with os.fdopen(fd, "wb") as f:
         f.write(response.content)
 
-    play_and_delete(path, volume, stop_event, pause_event)
+    play_and_delete(path, volume, stop_event, pause_event, on_playback_start)
 
 
-def speak(text, config, stop_event=None, pause_event=None):
+def speak(text, config, stop_event=None, pause_event=None, on_playback_start=None):
     provider = config.get("tts_provider", "edge")
     if provider == "gemini":
-        speak_gemini(text, config, stop_event, pause_event)
+        speak_gemini(text, config, stop_event, pause_event, on_playback_start)
     elif provider == "elevenlabs":
-        speak_elevenlabs(text, config, stop_event, pause_event)
+        speak_elevenlabs(text, config, stop_event, pause_event, on_playback_start)
     elif provider == "chatterbox":
-        speak_chatterbox(text, config, stop_event, pause_event)
+        speak_chatterbox(text, config, stop_event, pause_event, on_playback_start)
     else:
-        speak_edge(text, config, stop_event, pause_event)
+        speak_edge(text, config, stop_event, pause_event, on_playback_start)

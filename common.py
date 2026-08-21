@@ -89,6 +89,14 @@ DEFAULT_CONFIG = {
     "hotkey": "f8",
     "exit_key": "f9",
     "pause_key": "f10",
+    "recapture_key": "f7",
+    "skip_key": "f11",
+    "watch_key": "f12",
+    "watch_interval_seconds": 2.0,
+    "show_ocr_preview": True,
+    "ocr_preview_seconds": 2.5,
+    "ocr_preview_position": "top",  # "top", "center", "bottom", or "custom"
+    "ocr_preview_custom_rect": None,  # [left, top, width] from dragging the box by hand
     "ocr_upscale": 2.0,
     "volume": 1.0,
     "speed": 1.0,
@@ -127,7 +135,13 @@ def get_base_dir():
 
 CONFIG_PATH = os.path.join(get_base_dir(), "config.json")
 CONTROL_PATH = os.path.join(get_base_dir(), "control.json")
-DEFAULT_CONTROL = {"paused": False}
+# "command"/"command_id" is a one-shot channel the launcher uses to
+# trigger a capture/recapture/watch-toggle/skip in the running reader
+# process — same file-polling handshake pause already uses. The id is
+# bumped on every send so the reader can tell "new command" apart from
+# "same command, file just rewritten for an unrelated reason" (e.g. a
+# pause toggle) even though both go through the same file.
+DEFAULT_CONTROL = {"paused": False, "command": None, "command_id": 0}
 
 
 def find_tesseract():
@@ -170,3 +184,83 @@ def read_control():
 def write_control(control):
     with open(CONTROL_PATH, "w", encoding="utf-8") as f:
         json.dump(control, f)
+
+
+def send_command(action):
+    """Asks the running reader process to perform one of "capture",
+    "recapture", "toggle_watch", or "skip" — read by DMReader.poll_control
+    on its next loop tick (~50ms). Preserves the existing paused state
+    rather than clobbering it, since both travel through control.json."""
+    control = read_control()
+    control["command"] = action
+    control["command_id"] = control.get("command_id", 0) + 1
+    write_control(control)
+
+
+def select_screen_rect(prompt="Click and drag to draw the box  •  Esc to cancel"):
+    """Fullscreen click-drag overlay spanning the whole virtual desktop
+    (all monitors at once) that returns the drawn box as
+    (left, top, width, height) in absolute screen coordinates, or None
+    if cancelled. Used to let the user place the OCR text-preview box
+    anywhere on screen by hand, from either the launcher or Settings.
+
+    Imports mss/tkinter lazily so this module stays a light, dependency
+    -free import for anything that only needs config helpers.
+    """
+    import mss
+    import tkinter as tk
+
+    with mss.MSS() as sct:
+        m = sct.monitors[0]
+    left0, top0, width0, height0 = m["left"], m["top"], m["width"], m["height"]
+
+    root = tk.Tk()
+    root.overrideredirect(True)
+    root.geometry(f"{width0}x{height0}+{left0}+{top0}")
+    root.attributes("-alpha", 0.25)
+    root.attributes("-topmost", True)
+    root.configure(bg="black")
+    root.config(cursor="crosshair")
+    root.focus_force()
+
+    canvas = tk.Canvas(root, bg="grey11", highlightthickness=0)
+    canvas.pack(fill=tk.BOTH, expand=True)
+    canvas.create_text(
+        width0 // 2, 40, text=prompt, fill="white", font=("Segoe UI", 16),
+    )
+
+    result = {"rect": None}
+    state = {"start": None, "rect_id": None}
+
+    def on_press(event):
+        state["start"] = (event.x, event.y)
+        state["rect_id"] = canvas.create_rectangle(
+            event.x, event.y, event.x, event.y, outline="#5b8cff", width=2,
+        )
+
+    def on_drag(event):
+        if state["rect_id"] is not None:
+            sx, sy = state["start"]
+            canvas.coords(state["rect_id"], sx, sy, event.x, event.y)
+
+    def on_release(event):
+        sx, sy = state["start"]
+        left = min(sx, event.x) + left0
+        top = min(sy, event.y) + top0
+        width = abs(event.x - sx)
+        height = abs(event.y - sy)
+        if width > 20 and height > 20:
+            result["rect"] = (left, top, width, height)
+        root.quit()
+
+    def on_escape(_event):
+        root.quit()
+
+    canvas.bind("<ButtonPress-1>", on_press)
+    canvas.bind("<B1-Motion>", on_drag)
+    canvas.bind("<ButtonRelease-1>", on_release)
+    root.bind("<Escape>", on_escape)
+
+    root.mainloop()
+    root.destroy()
+    return result["rect"]

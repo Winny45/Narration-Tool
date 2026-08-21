@@ -1,12 +1,24 @@
+# API keys and personal settings — never commit this
 config.json
 control.json
+
+# Session transcripts (local-only reading history)
+logs/
+
+# Python virtual environments (huge, and machine-specific)
 venv/
 chatterbox_server/venv/
+
+# Python cache
 __pycache__/
 *.pyc
+
+# PyInstaller build output
 build/
 dist/
 *.spec
+
+# Built exe files (large binaries, don't belong in git)
 DMReader.exe
 DMReaderSettings.exe
 DMReaderLauncher.exe
